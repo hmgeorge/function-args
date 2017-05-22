@@ -200,7 +200,8 @@
   (define-key map (kbd "M-u") 'fa-abort)
   (define-key map (kbd "M-j") 'fa-jump-maybe)
   (define-key map (kbd "C-M-j") 'moo-jump-directory)
-  (define-key map (kbd "C-M-k") 'moo-jump-local))
+  (define-key map (kbd "C-M-k") 'moo-jump-local)
+  (define-key map (kbd "C-M-b") 'moo-jump-buffers))
 
 (defvar fa-overlay nil
   "Hint overlay instance.")
@@ -876,6 +877,12 @@ TYPE and NAME are strings."
 
 (defvar moo-jump-keymap
   (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-M-b")
+      (lambda ()
+	(interactive)
+	(ivy-exit-with-action
+	 (lambda (_)
+	   (moo-jump-buffers nil ivy-text)))))
     (define-key map (kbd "C-M-j")
       (lambda ()
         (interactive)
@@ -892,6 +899,41 @@ TYPE and NAME are strings."
               (switch-to-buffer ,buf)
               (moo-jump-local ivy-text))))))
     map))
+
+(defun moo-jump-buffers (arg &optional initial-input)
+  "Select a tag to jump to from tags defined in the current buffers.
+When ARG is non-nil, regenerate tags."
+  (interactive "P")
+  (let* ((file-list (cl-remove-if (lambda (x)
+				    (not (string-match "[\.cpp|\.c|\.cc|\.h]$" x)))
+				  (mapcar (function buffer-name) (buffer-list))))
+         (ready-tags
+          (or (and (null arg) (gethash file-list moo-jump-local-cache))
+              (let ((tags (sd-fetch-tags file-list)))
+                (when (memq major-mode '(c++-mode c-mode))
+                  (setq tags
+                        (delq nil
+                              (mapcar
+                               (lambda (x)
+                                 (let ((s (moo-tag->str x)))
+                                   (when s
+                                     (cons
+                                      (moo-format-tag-line
+                                       s (semantic-tag-get-attribute x :truefile))
+                                      x))))
+                               (moo-flatten-namepaces tags)))))
+                (puthash file-list tags moo-jump-local-cache)
+                tags)))
+         (preselect (car (semantic-current-tag)))
+         (preselect (and preselect
+                         (if (memq moo-select-method '(helm helm-fuzzy))
+                             (regexp-quote preselect)
+                           preselect))))
+    (moo-select-candidate
+     ready-tags
+     #'moo-action-jump
+     preselect
+     initial-input)))
 
 (defun moo-jump-local (&optional initial-input)
   "Jump to a tag in the current file."
